@@ -25,4 +25,10 @@ public class Symmetric {
         cipher.init(Cipher.DECRYPT_MODE, secretKey, new IvParameterSpec(iv));
         return cipher.doFinal(data);
     }
+
+    public static SecretKey getKey() throws NoSuchAlgorithmException {
+        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+        keyGen.init(256); // for example
+        return keyGen.generateKey();
+    }
 }

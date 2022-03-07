@@ -1,41 +1,44 @@
 import com.google.gson.Gson;
 import crypto.Asymmetric;
+import crypto.Hybrid;
 import crypto.Symmetric;
 
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.time.LocalDate;
 import java.util.Base64;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Client {
     private static final String merchantPort = "9000";
     private final KeyPair kp;
     private String merchant;
-    private SecretKey secretKey;
     private final PublicKey merchantPublicKey;
     private final PublicKey pgPublicKey;
+    private Integer amount;
     private Integer sid;
+    private Integer nounce;
 
     public static void main(String[] args) throws Exception {
         Client myClient = new Client();
         myClient.buyFrom("http://127.0.0.1:" + merchantPort);
-        try{
-            int sid = myClient.setup();
-            System.out.println(sid);
+        try {
+            myClient.setup();
+            var po = myClient.getPO();
+            var pi = myClient.getPI();
         } catch (SignatureException e) {
             System.out.println("Oh no, somebody tries to mess with us..");
         }
@@ -48,17 +51,15 @@ public class Client {
 
     public Client() throws NoSuchAlgorithmException, FileNotFoundException, CertificateException, URISyntaxException {
         kp = getKeys();
-        secretKey = getKey();
         merchantPublicKey = getPublicKey("mcert.pem");
         pgPublicKey = getPublicKey("pgcert.pem");
     }
 
-    public int setup() throws Exception {
+    public void setup() throws Exception {
         if (merchant == null) {
             throw new Exception("Set up the merchant first!!!");
         }
-        byte[][] encryptedData = encryptData(kp.getPublic().getEncoded(), merchantPublicKey);
-        System.out.println(Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()));
+        byte[][] encryptedData = Hybrid.encryptData(new byte[][]{kp.getPublic().getEncoded()}, merchantPublicKey, Symmetric.getKey());
         var gson = new Gson();
         var body = gson.toJson(encryptedData);
         var client = HttpClient.newHttpClient();
@@ -70,24 +71,16 @@ public class Client {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
         // print status code
-        System.out.println(response.statusCode());
         byte[][] res = gson.fromJson(response.body(), byte[][].class);
+        res = Hybrid.decryptData(res, kp.getPrivate());
         Asymmetric.verifySignedData(res[0], res[1], merchantPublicKey);
-        return ByteBuffer.wrap(res[0]).getInt();
+        sid = ByteBuffer.wrap(res[0]).getInt();
     }
 
     public void buyFrom(String address) {
         merchant = address;
     }
 
-    private byte[][] encryptData(byte[] data, PublicKey publicKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, IOException, BadPaddingException {
-        byte[][] res = new byte[2][];
-        res[0] = Symmetric.encryptData(data, secretKey);
-        String encodedKey = Base64.getEncoder().encodeToString(secretKey.getEncoded());
-        res[1] = Asymmetric.encryptData(secretKey.getEncoded(), publicKey);
-        secretKey = getKey();
-        return res;
-    }
 
     private PublicKey getPublicKey(String fromWho) throws FileNotFoundException, CertificateException, URISyntaxException {
         File certFile;
@@ -106,10 +99,37 @@ public class Client {
         kpg.initialize(2048);
         return kpg.generateKeyPair();
     }
+    private byte[][] getPO() throws Exception {
+        byte[][] res = new byte[5][];
+        String orderDescription = "a very generic order description";
+        amount = ThreadLocalRandom.current().nextInt();
+        nounce = ThreadLocalRandom.current().nextInt();
+        res[0] = orderDescription.getBytes(StandardCharsets.UTF_8);
+        res[1] = ByteBuffer.allocate(4).putInt(sid).array();
+        res[2] = ByteBuffer.allocate(4).putInt(amount).array();
+        res[3] = ByteBuffer.allocate(4).putInt(nounce).array();
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        for (int i = 0; i < 4; i++) {
+            os.write(res[i]);
+        }
+        res[4] = Asymmetric.signData(os.toByteArray(), kp.getPrivate());
+        System.out.println(res.length);
+        return res;
+    }
 
-    private SecretKey getKey() throws NoSuchAlgorithmException {
-        KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-        keyGen.init(256); // for example
-        return keyGen.generateKey();
+    private byte[][] getPI() {
+        byte[][] res = new byte[8][];
+        Long cardNumber = ThreadLocalRandom.current().nextLong();
+        LocalDate cardExpDate = LocalDate.now().plusYears(5);
+        Integer cvc = ThreadLocalRandom.current().nextInt(900) + 100;
+        res[0] = ByteBuffer.allocate(8).putLong(cardNumber).array();
+        res[1] = cardExpDate.toString().getBytes(StandardCharsets.UTF_8);
+        res[2] = ByteBuffer.allocate(4).putInt(cvc).array();
+        res[3] = ByteBuffer.allocate(4).putInt(sid).array();
+        res[4] = ByteBuffer.allocate(4).putInt(amount).array();
+        res[5] = kp.getPublic().getEncoded();
+        res[6] = ByteBuffer.allocate(4).putInt(nounce).array();
+        res[7] = "a very generic merchant".getBytes(StandardCharsets.UTF_8);
+        return res;
     }
 }

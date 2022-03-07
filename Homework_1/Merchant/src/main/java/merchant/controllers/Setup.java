@@ -2,6 +2,7 @@ package merchant.controllers;
 
 import com.google.gson.Gson;
 import crypto.Asymmetric;
+import crypto.Hybrid;
 import crypto.Symmetric;
 import merchant.entities.MerchantSessionsEntity;
 import org.bouncycastle.util.io.pem.PemObject;
@@ -12,6 +13,9 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import merchant.repos.MerchantSessionsRepo;
 
+import javax.crypto.BadPaddingException;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -19,10 +23,7 @@ import java.io.*;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
 import java.nio.file.Paths;
-import java.security.KeyFactory;
-import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.PublicKey;
+import java.security.*;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
@@ -52,7 +53,7 @@ public class Setup {
         byte[][] res = new byte[2][];
         res[0] = ByteBuffer.allocate(4).putInt(merchantSession.getId()).array();
         res[1] = Asymmetric.signData(res[0], myPrivateKey);
-        return gson.toJson(res);
+        return gson.toJson(Hybrid.encryptData(res, clientKey, Symmetric.getKey()));
     }
 
     public Setup() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, URISyntaxException {
@@ -61,10 +62,8 @@ public class Setup {
 
     private PublicKey getKey(byte[][] keys) {
         try {
-            byte[] decodedKey = Asymmetric.decryptData(keys[1], myPrivateKey);
-            SecretKey secretKey = new SecretKeySpec(decodedKey, 0, decodedKey.length, "AES");
             return KeyFactory.getInstance("RSA").generatePublic(
-                    new X509EncodedKeySpec(Symmetric.decryptData(keys[0], secretKey))
+                    new X509EncodedKeySpec(Hybrid.decryptData(keys, myPrivateKey)[0])
             );
         } catch (Exception e) {
             e.printStackTrace();
