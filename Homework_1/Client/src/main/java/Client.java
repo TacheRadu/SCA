@@ -3,7 +3,6 @@ import crypto.Asymmetric;
 import crypto.Hybrid;
 import crypto.Symmetric;
 
-import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.net.URI;
@@ -11,6 +10,7 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
@@ -18,8 +18,8 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.time.LocalDate;
-import java.util.Base64;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class Client {
@@ -37,10 +37,11 @@ public class Client {
         myClient.buyFrom("http://127.0.0.1:" + merchantPort);
         try {
             myClient.setup();
-            var po = myClient.getPO();
-            var pi = myClient.getPI();
+            myClient.exchange();
         } catch (SignatureException e) {
             System.out.println("Oh no, somebody tries to mess with us..");
+        } catch (HttpTimeoutException e) {
+            System.out.println("That damn merchant..");
         }
     }
 
@@ -75,6 +76,31 @@ public class Client {
         res = Hybrid.decryptData(res, kp.getPrivate());
         Asymmetric.verifySignedData(res[0], res[1], merchantPublicKey);
         sid = ByteBuffer.wrap(res[0]).getInt();
+    }
+
+    public void exchange() throws Exception {
+        var po = getPO();
+        var pm = getPM(getPI());
+        var toSend = new byte[po.length + pm.length + 1][];
+        for(int i = 0; i < pm.length; i++){
+            toSend[i] = pm[i];
+        }
+        for(int i = 0; i < po.length; i++){
+            toSend[pm.length + i] = po[i];
+        }
+        toSend = Hybrid.encryptData(toSend, merchantPublicKey, Symmetric.getKey());
+
+        var gson = new Gson();
+        var body = gson.toJson(toSend);
+        var client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        var request = HttpRequest.newBuilder(URI.create(merchant + "/setup"))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .header("accept", "application/json")
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     public void buyFrom(String address) {
@@ -130,6 +156,19 @@ public class Client {
         res[5] = kp.getPublic().getEncoded();
         res[6] = ByteBuffer.allocate(4).putInt(nounce).array();
         res[7] = "a very generic merchant".getBytes(StandardCharsets.UTF_8);
+        return res;
+    }
+    private byte[][] getPM(byte[][] pi) throws Exception {
+        byte[][] res = new byte[pi.length + 1][];
+        for(int i = 0; i < pi.length; i++){
+            res[i] = pi[i];
+        }
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        for (int i = 0; i < pi.length; i++) {
+            os.write(res[i]);
+        }
+        res[pi.length] = Asymmetric.signData(os.toByteArray(), kp.getPrivate());
+        res = Hybrid.encryptData(res, pgPublicKey, Symmetric.getKey());
         return res;
     }
 }
