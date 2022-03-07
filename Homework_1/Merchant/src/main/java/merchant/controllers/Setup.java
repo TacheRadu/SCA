@@ -5,27 +5,25 @@ import crypto.Asymmetric;
 import crypto.Hybrid;
 import crypto.Symmetric;
 import merchant.entities.MerchantSessionsEntity;
+import merchant.repos.MerchantSessionsRepo;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.*;
-import merchant.repos.MerchantSessionsRepo;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
-import java.io.*;
-import java.net.URISyntaxException;
+import java.io.File;
+import java.io.FileReader;
 import java.nio.ByteBuffer;
 import java.nio.file.Paths;
-import java.security.*;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.interfaces.RSAPrivateKey;
-import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
@@ -56,7 +54,7 @@ public class Setup {
         return gson.toJson(Hybrid.encryptData(res, clientKey, Symmetric.getKey()));
     }
 
-    public Setup() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, URISyntaxException {
+    public Setup() throws Exception {
         myPrivateKey = getMyPrivateKey();
     }
 
@@ -76,7 +74,7 @@ public class Setup {
         return new IvParameterSpec(iv);
     }
 
-    private RSAPrivateKey getMyPrivateKey() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, URISyntaxException {
+    private RSAPrivateKey getMyPrivateKey() throws Exception {
         File file = new File(getClass().getClassLoader()
                 .getResource(Paths.get("keys", "mprivkey.pem").toString()).toURI());
         KeyFactory factory = KeyFactory.getInstance("RSA");

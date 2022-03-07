@@ -3,7 +3,7 @@ package merchant.entities;
 import javax.persistence.*;
 
 @Entity
-@Table(name = "merchant_sessions", schema = "sc", catalog = "")
+@Table(name = "merchant_sessions", schema = "sc")
 public class MerchantSessionsEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Id
@@ -17,7 +17,7 @@ public class MerchantSessionsEntity {
     private String orderDesc;
     @Basic
     @Column(name = "AMOUNT")
-    private Integer amount;
+    private Double amount;
     @Basic
     @Column(name = "NONCE")
     private Integer nonce;
@@ -46,11 +46,11 @@ public class MerchantSessionsEntity {
         this.orderDesc = orderDesc;
     }
 
-    public Integer getAmount() {
+    public Double getAmount() {
         return amount;
     }
 
-    public void setAmount(Integer amount) {
+    public void setAmount(Double amount) {
         this.amount = amount;
     }
 

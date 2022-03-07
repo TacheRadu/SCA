@@ -23,24 +23,22 @@ import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class Client {
-    private static final String merchantPort = "9000";
     private final KeyPair kp;
-    private String merchant;
+    private static final String merchant = "http://127.0.0.1:9000";
     private final PublicKey merchantPublicKey;
     private final PublicKey pgPublicKey;
-    private Integer amount;
+    private Double amount;
     private Integer sid;
     private Integer nounce;
 
     public static void main(String[] args) throws Exception {
         Client myClient = new Client();
-        myClient.buyFrom("http://127.0.0.1:" + merchantPort);
         try {
             myClient.setup();
             myClient.exchange();
         } catch (SignatureException e) {
             System.out.println("Oh no, somebody tries to mess with us..");
-        } catch (HttpTimeoutException e) {
+        } catch (Exception e) {
             System.out.println("That damn merchant..");
         }
     }
@@ -60,7 +58,9 @@ public class Client {
         if (merchant == null) {
             throw new Exception("Set up the merchant first!!!");
         }
-        byte[][] encryptedData = Hybrid.encryptData(new byte[][]{kp.getPublic().getEncoded()}, merchantPublicKey, Symmetric.getKey());
+        var toEncode = new byte[1][];
+        toEncode[0] = kp.getPublic().getEncoded();
+        byte[][] encryptedData = Hybrid.encryptData(toEncode, merchantPublicKey, Symmetric.getKey());
         var gson = new Gson();
         var body = gson.toJson(encryptedData);
         var client = HttpClient.newHttpClient();
@@ -70,43 +70,57 @@ public class Client {
                 .build();
 
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        try {
 
-        // print status code
-        byte[][] res = gson.fromJson(response.body(), byte[][].class);
-        res = Hybrid.decryptData(res, kp.getPrivate());
-        Asymmetric.verifySignedData(res[0], res[1], merchantPublicKey);
-        sid = ByteBuffer.wrap(res[0]).getInt();
+            // print status code
+            byte[][] res = gson.fromJson(response.body(), byte[][].class);
+            res = Hybrid.decryptData(res, kp.getPrivate());
+            Asymmetric.verifySignedData(res[0], res[1], merchantPublicKey);
+            sid = ByteBuffer.wrap(res[0]).getInt();
+            System.out.println(sid);
+        } catch (SignatureException e) {
+            System.out.println("That's not the merchant...");
+        }
     }
 
     public void exchange() throws Exception {
         var po = getPO();
         var pm = getPM(getPI());
-        var toSend = new byte[po.length + pm.length + 1][];
+        var toSend = new byte[po.length + pm.length ][];
         for(int i = 0; i < pm.length; i++){
             toSend[i] = pm[i];
         }
         for(int i = 0; i < po.length; i++){
             toSend[pm.length + i] = po[i];
         }
-        toSend = Hybrid.encryptData(toSend, merchantPublicKey, Symmetric.getKey());
+        try {
+            toSend = Hybrid.encryptData(toSend, merchantPublicKey, Symmetric.getKey());
+        } catch (Exception e){
+            System.err.println(e.toString());
+            return;
+        }
 
         var gson = new Gson();
         var body = gson.toJson(toSend);
         var client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
-        var request = HttpRequest.newBuilder(URI.create(merchant + "/setup"))
+        var request = HttpRequest.newBuilder(URI.create(merchant + "/exchange"))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("accept", "application/json")
                 .build();
 
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            byte[][] res = gson.fromJson(response.body(), byte[][].class);
+            res = Hybrid.decryptData(res, kp.getPrivate());
+            Asymmetric.verifySignedData(res[0], res[2], pgPublicKey);
+            var resp = new String(res[0]);
+            System.out.println(resp);
+        } catch (SignatureException e){
+            System.out.println("That's not the payment gateway...");
+        }
     }
-
-    public void buyFrom(String address) {
-        merchant = address;
-    }
-
 
     private PublicKey getPublicKey(String fromWho) throws FileNotFoundException, CertificateException, URISyntaxException {
         File certFile;
@@ -128,18 +142,17 @@ public class Client {
     private byte[][] getPO() throws Exception {
         byte[][] res = new byte[5][];
         String orderDescription = "a very generic order description";
-        amount = ThreadLocalRandom.current().nextInt();
+        amount = ThreadLocalRandom.current().nextDouble();
         nounce = ThreadLocalRandom.current().nextInt();
         res[0] = orderDescription.getBytes(StandardCharsets.UTF_8);
         res[1] = ByteBuffer.allocate(4).putInt(sid).array();
-        res[2] = ByteBuffer.allocate(4).putInt(amount).array();
+        res[2] = ByteBuffer.allocate(8).putDouble(amount).array();
         res[3] = ByteBuffer.allocate(4).putInt(nounce).array();
         ByteArrayOutputStream os = new ByteArrayOutputStream();
         for (int i = 0; i < 4; i++) {
             os.write(res[i]);
         }
         res[4] = Asymmetric.signData(os.toByteArray(), kp.getPrivate());
-        System.out.println(res.length);
         return res;
     }
 
@@ -152,7 +165,7 @@ public class Client {
         res[1] = cardExpDate.toString().getBytes(StandardCharsets.UTF_8);
         res[2] = ByteBuffer.allocate(4).putInt(cvc).array();
         res[3] = ByteBuffer.allocate(4).putInt(sid).array();
-        res[4] = ByteBuffer.allocate(4).putInt(amount).array();
+        res[4] = ByteBuffer.allocate(8).putDouble(amount).array();
         res[5] = kp.getPublic().getEncoded();
         res[6] = ByteBuffer.allocate(4).putInt(nounce).array();
         res[7] = "a very generic merchant".getBytes(StandardCharsets.UTF_8);
