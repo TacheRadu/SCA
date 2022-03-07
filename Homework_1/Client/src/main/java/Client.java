@@ -1,8 +1,13 @@
 import com.google.gson.Gson;
+import crypto.Asymmetric;
+import crypto.Symmetric;
 
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
@@ -13,6 +18,7 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 
 public class Client {
     private static final String merchantPort = "9000";
@@ -43,10 +49,12 @@ public class Client {
         if (merchant == null) {
             throw new Exception("Set up the merchant first!!!");
         }
-        SealedObject[] encryptedData = encryptData(kp.getPublic());
-        var body = new Gson().toJson(encryptedData);
+        byte[][] encryptedData = encryptData(kp.getPublic().getEncoded());
+        System.out.println(Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()));
+        var gson = new Gson();
+        var body = gson.toJson(encryptedData);
         var client = HttpClient.newHttpClient();
-        var request = HttpRequest.newBuilder(URI.create(merchant))
+        var request = HttpRequest.newBuilder(URI.create(merchant + "/setup"))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("accept", "application/json")
                 .build();
@@ -55,24 +63,25 @@ public class Client {
 
         // print status code
         System.out.println(response.statusCode());
-
-        // print response body
-        System.out.println(response.body());
-
+        byte[][] res = gson.fromJson(response.body(), byte[][].class);
+        try{
+            Asymmetric.verifySignedData(res[0], res[1], merchantPublicKey);
+            System.out.println("Yay");
+        } catch (SignatureException e) {
+            System.out.println("Fuck");
+        }
     }
 
     public void buyFrom(String address) {
         merchant = address;
     }
 
-    private SealedObject[] encryptData(Serializable data) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, IOException {
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, generateIv());
-        SealedObject encryptedData = new SealedObject(data, cipher);
-        cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, merchantPublicKey);
-        SealedObject encryptedSecret = new SealedObject(secretKey, cipher);
-        return new SealedObject[]{encryptedData, encryptedSecret};
+    private byte[][] encryptData(byte[] data) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidAlgorithmParameterException, InvalidKeyException, IllegalBlockSizeException, IOException, BadPaddingException {
+        byte[][] res = new byte[2][];
+        res[0] = Symmetric.encryptData(data, secretKey);
+        String encodedKey = Base64.getEncoder().encodeToString(secretKey.getEncoded());
+        res[1] = Asymmetric.encryptData(secretKey.getEncoded(), merchantPublicKey);
+        return res;
     }
 
     private PublicKey getMerchantPublicKey() throws FileNotFoundException, CertificateException, URISyntaxException {
