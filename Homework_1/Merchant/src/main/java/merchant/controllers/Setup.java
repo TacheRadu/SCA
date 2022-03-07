@@ -1,22 +1,34 @@
 package merchant.controllers;
 
 import com.google.gson.Gson;
+import org.apache.tomcat.util.codec.binary.Base64;
+import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
+import org.bouncycastle.util.io.pem.PemObject;
+import org.bouncycastle.util.io.pem.PemReader;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 
-import javax.crypto.*;
+import javax.crypto.Cipher;
+import javax.crypto.SealedObject;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
+import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.security.*;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.RSAPrivateCrtKeySpec;
-import java.security.spec.RSAPrivateKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 
 @Controller
 @RequestMapping("/setup")
@@ -45,21 +57,7 @@ public class Setup {
             cipher.init(Cipher.DECRYPT_MODE, secretKey, generateIv());
             PublicKey clientPublicKey = (PublicKey) keys[0].getObject(cipher);
             return clientPublicKey;
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (NoSuchPaddingException e) {
-            e.printStackTrace();
-        } catch (InvalidKeyException e) {
-            e.printStackTrace();
-        } catch (IllegalBlockSizeException e) {
-            e.printStackTrace();
-        } catch (BadPaddingException e) {
-            e.printStackTrace();
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-        } catch (InvalidAlgorithmParameterException e) {
+        } catch (Exception e) {
             e.printStackTrace();
         }
         return null;
@@ -70,14 +68,18 @@ public class Setup {
         return new IvParameterSpec(iv);
     }
 
-    private PrivateKey getMyPrivateKey() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, URISyntaxException {
-        byte[] keyBytes = Files.readAllBytes(Paths.get(getClass().getClassLoader()
-                .getResource(Paths.get(myKeyPath[0], myKeyPath[1]).toString()).toURI()));
-        System.out.println(keyBytes.toString());
+    private RSAPrivateKey getMyPrivateKey() throws NoSuchAlgorithmException, InvalidKeySpecException, IOException, URISyntaxException {
+        File file = new File(getClass().getClassLoader()
+                .getResource(Paths.get("keys", "mprivkey.pem").toString()).toURI());
+        KeyFactory factory = KeyFactory.getInstance("RSA");
 
-        RSAPrivateKeySpec spec =
-                new RSAPrivateCrtKeySpec();
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        return kf.generatePrivate(spec);
+        try (FileReader keyReader = new FileReader(file);
+             PemReader pemReader = new PemReader(keyReader)) {
+
+            PemObject pemObject = pemReader.readPemObject();
+            byte[] content = pemObject.getContent();
+            PKCS8EncodedKeySpec privKeySpec = new PKCS8EncodedKeySpec(content);
+            return (RSAPrivateKey) factory.generatePrivate(privKeySpec);
+        }
     }
 }
