@@ -25,6 +25,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class Client {
     private final KeyPair kp;
     private static final String merchant = "http://127.0.0.1:9000";
+    private static final String paymentGateway = "http://127.0.0.1:9002";
     private final PublicKey merchantPublicKey;
     private final PublicKey pgPublicKey;
     private Double amount;
@@ -33,13 +34,15 @@ public class Client {
 
     public static void main(String[] args) throws Exception {
         Client myClient = new Client();
+        myClient.setup();
+        // Thread.sleep(10000);
         try {
-            myClient.setup();
             myClient.exchange();
         } catch (SignatureException e) {
             System.out.println("Oh no, somebody tries to mess with us..");
         } catch (Exception e) {
             System.out.println("That damn merchant..");
+            myClient.resolution();
         }
     }
 
@@ -55,9 +58,6 @@ public class Client {
     }
 
     public void setup() throws Exception {
-        if (merchant == null) {
-            throw new Exception("Set up the merchant first!!!");
-        }
         var toEncode = new byte[1][];
         toEncode[0] = kp.getPublic().getEncoded();
         byte[][] encryptedData = Hybrid.encryptData(toEncode, merchantPublicKey, Symmetric.getKey());
@@ -103,9 +103,37 @@ public class Client {
         var gson = new Gson();
         var body = gson.toJson(toSend);
         var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
                 .build();
         var request = HttpRequest.newBuilder(URI.create(merchant + "/exchange"))
+                .timeout(Duration.ofSeconds(5))
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .header("accept", "application/json")
+                .build();
+
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            byte[][] res = gson.fromJson(response.body(), byte[][].class);
+            res = Hybrid.decryptData(res, kp.getPrivate());
+            var os = new ByteArrayOutputStream();
+            os.write(res[0]);
+            os.write(ByteBuffer.allocate(4).putInt(sid).array());
+            os.write(ByteBuffer.allocate(8).putDouble(amount).array());
+            os.write(ByteBuffer.allocate(4).putInt(nounce).array());
+            Asymmetric.verifySignedData(os.toByteArray(), res[2], pgPublicKey);
+            var resp = new String(res[0]);
+            System.out.println(resp);
+        } catch (SignatureException e){
+            System.out.println("That's not the payment gateway...");
+        }
+    }
+
+    public void resolution() throws Exception {
+        var toEncode = getResolutionDataToSend();
+        byte[][] encryptedData = Hybrid.encryptData(toEncode, pgPublicKey, Symmetric.getKey());
+        var gson = new Gson();
+        var body = gson.toJson(encryptedData);
+        var client = HttpClient.newHttpClient();
+        var request = HttpRequest.newBuilder(URI.create(paymentGateway + "/resolution"))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("accept", "application/json")
                 .build();
@@ -188,5 +216,19 @@ public class Client {
         res[pi.length] = Asymmetric.signData(os.toByteArray(), kp.getPrivate());
         res = Hybrid.encryptData(res, pgPublicKey, Symmetric.getKey());
         return res;
+    }
+
+    private byte[][] getResolutionDataToSend() throws Exception {
+        var toReturn = new byte[5][];
+        toReturn[0] = ByteBuffer.allocate(4).putInt(sid).array();
+        toReturn[1] = ByteBuffer.allocate(8).putDouble(amount).array();
+        toReturn[2] = ByteBuffer.allocate(4).putInt(nounce).array();
+        toReturn[3] = kp.getPublic().getEncoded();
+        var os = new ByteArrayOutputStream();
+        for(int i = 0; i < toReturn.length - 1; i++){
+            os.write(toReturn[i]);
+        }
+        toReturn[4] = Asymmetric.signData(os.toByteArray(), kp.getPrivate());
+        return toReturn;
     }
 }

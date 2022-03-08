@@ -77,6 +77,8 @@ public class Exchange {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             byte[][] res = gson.fromJson(response.body(), byte[][].class);
             res = Hybrid.encryptData(Hybrid.decryptData(res, myPrivateKey), clientPublicKey, Symmetric.getKey());
+            // System.out.println("Stop me now");
+            // Thread.sleep(10000);
             return gson.toJson(res);
         } catch(SignatureException e) {
             System.out.println("Oh no.. It wasn't the client that signed these things....");
