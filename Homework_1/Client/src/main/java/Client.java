@@ -114,7 +114,12 @@ public class Client {
         try {
             byte[][] res = gson.fromJson(response.body(), byte[][].class);
             res = Hybrid.decryptData(res, kp.getPrivate());
-            Asymmetric.verifySignedData(res[0], res[2], pgPublicKey);
+            var os = new ByteArrayOutputStream();
+            os.write(res[0]);
+            os.write(ByteBuffer.allocate(4).putInt(sid).array());
+            os.write(ByteBuffer.allocate(8).putDouble(amount).array());
+            os.write(ByteBuffer.allocate(4).putInt(nounce).array());
+            Asymmetric.verifySignedData(os.toByteArray(), res[2], pgPublicKey);
             var resp = new String(res[0]);
             System.out.println(resp);
         } catch (SignatureException e){
