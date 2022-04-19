@@ -1,0 +1,10 @@
+Create a new wallet, setting its AID and the PIN to 12345. Response code is 90 00, which is ok.
+Select wallet, returns no data, response code ok.
+Verify the PIN, returns no data, response ok.
+Credit $80, returns no data, response ok.
+Get the balance, returns 0050 = 80, response ok.
+Debit $30, returns no data, response ok.
+Get the balance, returns 0032 = 50, response ok.
+Debit $60, returns no data, response SW_NEGATIVE_BALANCE.
+Get the balance, returns 0032 = 50 (nothing has changed), response ok.
+Credit $200, returns no data, response SW_INVALID_TRANSACTION_AMOUNT (credit amount too big).
