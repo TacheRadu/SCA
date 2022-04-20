@@ -192,6 +192,7 @@ public class Wallet extends Applet {
         }
 
         // get the credit amount
+        // doi bytes, cate unul pentru creditarea cu bani sau cu litri.
         short litresCredit = (short) (buffer[ISO7816.OFFSET_CDATA] & 0xff);
         short moneyCredit = (short) (buffer[ISO7816.OFFSET_CDATA + 1] & 0xff);
         
@@ -230,7 +231,8 @@ public class Wallet extends Applet {
         }
 
         // get debit amount
-        byte debitAmount = buffer[ISO7816.OFFSET_CDATA];
+        // debitarea se face in litri
+        short debitAmount = (short) (buffer[ISO7816.OFFSET_CDATA] & 0xff);
 
         // check debit amount
         if ((debitAmount > MAX_TRANSACTION_AMOUNT) || (debitAmount < 0)) {
@@ -242,12 +244,15 @@ public class Wallet extends Applet {
         }
         else {
         	debitAmount -= litres;
+        	// conversia litrilor in lei
+        	debitAmount *= 8;
         	if (debitAmount > balance) {
         		ISOException.throwIt(SW_NEGATIVE_BALANCE);
         	}
         	litres = 0;
         	litres += debitAmount / 100;
         	creditsUntilLitre -= debitAmount % 100;
+        	// pentru a trata litri bonus din tranzactii diferite
         	if (creditsUntilLitre <= 0) {
         		litres += 1;
         		creditsUntilLitre += 100;
@@ -280,6 +285,7 @@ public class Wallet extends Applet {
         // move the balance data into the APDU buffer
         // starting at the offset 0
         byte p = buffer[ISO7816.OFFSET_P1];
+        // cazul in care vrem doar soldul in lei
         if (p == 1) {
             // informs the CAD the actual number of bytes
             // returned
@@ -290,6 +296,7 @@ public class Wallet extends Applet {
             // 0 in the apdu buffer
             apdu.sendBytes((short) 0, (short) 2);
         }
+        // cazul in care vrem doar numarul de litri
         else if (p == 2){
             // informs the CAD the actual number of bytes
             // returned
@@ -300,6 +307,7 @@ public class Wallet extends Applet {
             // 0 in the apdu buffer
             apdu.sendBytes((short) 0, (short) 2);
         }
+        // cazul general. Se trimite soldul in lei si numarul de litri.
         else if (p == 3) {
             // informs the CAD the actual number of bytes
             // returned
