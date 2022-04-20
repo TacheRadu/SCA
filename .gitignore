@@ -1,4 +1,7 @@
 **/.idea
 **/.gradle
 **/build
+**/bin
+**/deliverables
+*.png
 ++/.gitignore
